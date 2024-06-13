@@ -21,6 +21,8 @@ library(glamr)
 library(readxl)
 library(janitor)
 library(lubridate)
+library(stringr)
+library(readr)
 ```
 
 Read the data from the Newly Initiated tab
@@ -47,12 +49,18 @@ df_new <- df_new %>%
     `Implementing Partner` = as.factor(`Implementing Partner`),
     `Facility Name` = as.factor(`Facility Name`),
     `Sex` = as.factor(Sex),
-    `Entry point at HIV Diagnosis` = as.factor(`Entry point at HIV Diagnosis`)
+    `Entry point at HIV Diagnosis` = as.factor(`Entry point at HIV Diagnosis`),
+     `County` = as.factor(`County`),
+    `ART Regimen at Initiation` = as.factor(`ART Regimen at Initiation`),
+    `ART  Regimen Line at Initiation` = as.factor(`ART  Regimen Line at Initiation`),
+     `Current ART regimen` = as.factor(`Current ART regimen`)
+    
   )
 
 ```
 
 The `echo: false` option disables the printing of code (only output is displayed).
+
 ```{r}
 # Renaming columns
 df_new <- df_new %>% clean_names()
@@ -67,10 +75,10 @@ df_new <- df_new %>%
     client_id = client_number_de_identified,
     dob = date_of_birth,
     sex = sex,
-    diagnosis_date = date_of_hiv_diagnosis,
-    diagnosis_entry = entry_point_at_hiv_diagnosis,
-    who_state_at_diagnosis = who_stage_at_hiv_diagnosis,
-    initiation_date = date_of_art_initiation,
+    diag_date = date_of_hiv_diagnosis,
+    diag_entry_date = entry_point_at_hiv_diagnosis,
+    who_state_at_diag = who_stage_at_hiv_diagnosis,
+    init_date = date_of_art_initiation,
     art_init_reg = art_regimen_at_initiation,
     init_reg_line = art_regimen_line_at_initiation,
     curr_reg = current_art_regimen,
@@ -78,19 +86,9 @@ df_new <- df_new %>%
   )
 
 ```
-```{r}
-df_new <- df_new %>%
-  mutate(
-    dob = mdy(dob),  # Convert "Date of Birth" to Date type
-    ip = as.factor(ip),
-    facility_name = as.factor(facility_name),
-    dob = as.factor(dob),  # Convert Date of Birth to factor
-    sex = as.factor(sex),
-    diagnosis_entry = as.factor(diagnosis_entry)
-  )
 
-```
- check for duplicates _ no  full duplicates 
+check for duplicates \_ no full duplicates
+
 ```{r}
 
 # Check for duplicates by all variables
@@ -122,21 +120,74 @@ print(duplicates_client_id)
 # Determine the date range for diagnosis_date
 date_range <- df_new %>%
   summarise(
-    min_date = min(diagnosis_date, na.rm = TRUE),
-    max_date = max(diagnosis_date, na.rm = TRUE)
+    min_date = min(diag_date, na.rm = TRUE),
+    max_date = max(diag_date, na.rm = TRUE)
   )
 
 # Display the date range
 print(date_range)
 
 ```
+
+# we have 2999 tx_new that before October 1,2022
+
 ```{r}
 # Filter observations with diagnosis_date before October 1, 2022
 observations_before_oct_2022 <- df_new %>%
-  filter(diagnosis_date < as.Date("2022-10-01"))
+  filter(diag_date < as.Date("2022-10-01"))
 
 # Display the number of observations and the observations themselves
 cat("Number of observations with diagnosis_date before October 1, 2022:", nrow(observations_before_oct_2022), "\n")
-print(observations_before_oct_2022)
+# Filter out observations with diagnosis_date before October 1, 2022
+df_new_filtered <- df_new %>%
+  filter(diag_date >= as.Date("2022-10-01"))
+
+# Display the number of observations in the filtered dataframe
+cat("Number of observations in df_new after excluding those before October 1, 2022:", nrow(df_new_filtered), "\n")
+
+# Display the filtered dataframe
+print(df_new_filtered)
 ```
 
+```{r}
+# Original number of unique client_ids before truncation
+orig_unique <- length(unique(df_new_filtered$client_id))
+
+# Truncate client_id to the first 7 characters, concatenate with mfl_code, and create a unique identifier (UID)
+df_new_filtered <- df_new_filtered %>%
+  mutate(client_id_truncated = str_sub(client_id, 1, 7),
+         uid = paste0(client_id_truncated, "-", mfl_code)) %>%
+  relocate(uid, .after = client_id) %>%
+  select(-client_id_truncated)
+
+# Check if concatenated client_ids (UIDs) are now unique
+unique_id_check <- length(unique(df_new_filtered$uid)) == orig_unique
+print(unique_id_check)
+
+# Create a new dataframe with the duplicates
+df_duplicates <- df_new_filtered %>%
+  group_by(uid) %>%
+  filter(n() > 1) %>%
+  ungroup()
+
+# Display the number of duplicates
+cat("Number of duplicate rows:", nrow(df_duplicates), "\n")
+
+# Display the dataframe with the duplicates
+print(df_duplicates)
+```
+
+#write the clean tx_new data into the Dataout folder
+
+```{r}
+# Define the path to the output file
+output_dir <- "./Dataout"
+output_file_path <- file.path(output_dir, "tx_new.rds")
+
+# Save the df_new_filtered dataframe as an RDS file
+saveRDS(df_new_filtered, file = output_file_path)
+
+# Confirmation message
+cat("Dataframe has been saved to", output_file_path, "\n")
+
+```
