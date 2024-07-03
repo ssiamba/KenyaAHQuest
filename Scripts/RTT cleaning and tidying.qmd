@@ -1,0 +1,196 @@
+---
+title: "RTT  tidying and cleaning"
+author: "Nelly Maina"
+format: html
+editor: visual
+---
+# RTT-IIT""
+List  ALL clients who experienced interruption in treatment (IIT) and returned to treatment (RTT) between October 1, 2022, and September 30, 2023 (FY23).  Please note that some clients who returned to treatment (RTT) in FY23 might have experienced interruption in treatment (IIT) before FY23 and some within FY23. Therefore, this is not a deduplicated list and all multiple RTTs  experienced in FY23 should be reported with the corresponding last visit date before experiencing ITT.
+  a). Last Actual Visit date prior to IIT - this is the last actual visit date the client came to the clinic or for drug pick-up, after which he/she did not honor the next appointment date resulting to IIT.  The dates take the format DD/MM/YYYY.
+  b). Last Appointment Date prior to IIT – this is the last appointment date the client was scheduled to come to the clinic or for drug pick-up and he/she did not honor resulting to IIT.  The dates take the format DD/MM/YYYY.
+  c). Date of Return to Treatment – this is the date the client returned to treatment after experiencing IIT (that is, after missing their scheduled appointment for more than 28days). The dates take the format DD/MM/YYYY.
+"
+
+
+#Load packages
+```{r}
+library(tidyverse)
+library(glamr)
+library(readxl)
+library(janitor)
+library(lubridate)
+library(stringr)
+library(readr)
+```
+
+# Read the data 
+
+```{r}
+df_rtt <- read_excel("Data/Data - AHD.xlsx", 
+  sheet = "2. RTT-IIT", col_names = FALSE)
+# Use the second row as the column names
+colnames(df_rtt) <- df_rtt[2, ]
+
+# Remove the first two rows
+df_rtt <- df_rtt[-c(1, 2), ]
+
+# Convert the necessary columns to the appropriate types
+df_rtt <- df_rtt %>%
+  mutate(
+    `Date of HIV Diagnosis` = as.Date(as.numeric(`Date of HIV Diagnosis`), origin = "1899-12-30"),
+    `Date of Birth` = as.Date(as.numeric(`Date of Birth`), origin = "1899-12-30"),
+    `Date of ART Initiation` = as.Date(as.numeric(`Date of ART Initiation`), origin = "1899-12-30"),
+    `Last Actual Visit date prior to IIT` = as.Date(as.numeric(`Last Actual Visit date prior to IIT`), origin = "1899-12-30"),
+    `Last Appointment date prior to IIT` = as.Date(as.numeric(`Last Appointment date prior to IIT`), origin = "1899-12-30"),
+    `Date of Return to Treatment` = as.Date(as.numeric(`Date of Return to Treatment`), origin = "1899-12-30"),
+
+    `Implementing Partner` = as.factor(`Implementing Partner`),
+    `Facility Name` = as.factor(`Facility Name`),
+    `Sex` = as.factor(Sex),
+    `Entry point at HIV Diagnosis` = as.factor(`Entry point at HIV Diagnosis`),
+     `County` = as.factor(`County`)
+  )
+
+```
+```{r}
+# Renaming columns
+colnames(df_rtt) <- c("ip", "facility_name", "mfl_code", "county", 
+                      "client_id", "dob", "sex", "hiv_diag_date", 
+                      "entry_point", "who_stage", "art_init_date", 
+                      "last_visit", "last_appt", "return_to_treatment")
+```
+
+
+Exclude observations that are missing last_visit, last_appt, or return_to_treatment data - no missing data 
+```{r}
+missing_last_visit <- sum(is.na(df_rtt$last_visit))
+missing_last_appt <- sum(is.na(df_rtt$last_appt))
+missing_return_to_treatment <- sum(is.na(df_rtt$return_to_treatment))
+
+total_missing <- sum(is.na(df_rtt$last_visit) | is.na(df_rtt$last_appt) | is.na(df_rtt$return_to_treatment))
+
+cat("Number of observations missing last visit: ", missing_last_visit, "\n")
+cat("Number of observations missing last appointment: ", missing_last_appt, "\n")
+cat("Number of observations missing return to treatment: ", missing_return_to_treatment, "\n")
+cat("Total number of observations missing last visit, last appointment, or return to treatment: ", total_missing, "\n")
+
+df_rtt <- df_rtt[!is.na(df_rtt$last_visit) & !is.na(df_rtt$last_appt) & !is.na(df_rtt$return_to_treatment), ]
+
+```
+
+
+# check for duplicates_ no full duplicates. 
+
+```{r}
+full_duplicates <- df_rtt[duplicated(df_rtt), ]
+```
+
+```{r}
+# Truncate client_id to the first 7 characters, concatenate with mfl_code, and create a unique identifier (UID)
+df_rtt <- df_rtt %>%
+  mutate(client_id_truncated = str_sub(client_id, 1, 7),
+         uid = paste0(client_id_truncated, "-", mfl_code)) %>%
+  relocate(uid, .after = client_id) %>%
+  select(-client_id_truncated,-client_id)
+```
+
+# using dob create a new variable age 
+```{r}
+
+# Ensure 'dob' is in Date format
+df_rtt$dob <- as.Date(df_rtt$dob, format="%Y-%m-%d")
+
+# Calculate age
+df_rtt$age <- floor(interval(df_rtt$dob, Sys.Date()) / years(1))
+
+# Ensure 'age' is numeric
+df_rtt$age <- as.numeric(df_rtt$age)
+
+# Create age categories(adjust age bands to #Age category<5, 05-14, 15-24, 25-49, 50+)
+df_rtt$age_cat <- cut(df_rtt$age, 
+                      breaks = c(seq(0, 50, by = 5), Inf), 
+                      labels = c("0-4", "5-9", "10-14", "15-19", "20-24", 
+                                 "25-29", "30-34", "35-39", "40-44", "45-49", "50+"), 
+                      right = FALSE)
+# Convert age_cat to a factor and set levels in increasing order
+df_rtt$age_cat <- factor(df_rtt$age_cat, 
+                         levels = c("0-4", "5-9", "10-14", "15-19", "20-24", 
+                                    "25-29", "30-34", "35-39", "40-44", "45-49", "50+"))
+
+# Display the first few rows to verify
+head(df_rtt)
+
+
+```
+
+```{r}
+# Determine the date range for rtt
+date_range <- df_rtt %>%
+  summarise(
+    min_date = min(return_to_treatment, na.rm = TRUE),
+    max_date = max(return_to_treatment, na.rm = TRUE)
+  )
+
+# Display the date range
+print(date_range)
+```
+```{r}
+# Calculate the number of days lost to treatment
+df_rtt$days_lost_to_treatment <- as.numeric(df_rtt$return_to_treatment - df_rtt$last_appt)
+
+# Display the first few rows to verify
+head(df_rtt)
+
+```
+# understanding "days lost to treatment"
+```{r}
+# Summary statistics
+summary_stats <- summary(df_rtt$days_lost_to_treatment)
+cat("Summary statistics for days_lost_to_treatment:\n")
+print(summary_stats)
+
+# Additional statistics
+mean_days_lost <- mean(df_rtt$days_lost_to_treatment, na.rm = TRUE)
+median_days_lost <- median(df_rtt$days_lost_to_treatment, na.rm = TRUE)
+sd_days_lost <- sd(df_rtt$days_lost_to_treatment, na.rm = TRUE)
+iqr_days_lost <- IQR(df_rtt$days_lost_to_treatment, na.rm = TRUE)
+missing_values <- sum(is.na(df_rtt$days_lost_to_treatment))
+
+cat("\nAdditional statistics for days_lost_to_treatment:\n")
+cat("Mean: ", mean_days_lost, "\n")
+cat("Median: ", median_days_lost, "\n")
+cat("Standard Deviation: ", sd_days_lost, "\n")
+cat("Interquartile Range (IQR): ", iqr_days_lost, "\n")
+cat("Missing Values: ", missing_values, "\n")
+
+# Histogram
+hist(df_rtt$days_lost_to_treatment, 
+     main = "Histogram of Days Lost to Treatment", 
+     xlab = "Days Lost to Treatment", 
+     ylab = "Frequency", 
+     col = "skyblue", 
+     breaks = 50)
+
+# Boxplot
+boxplot(df_rtt$days_lost_to_treatment, 
+        main = "Boxplot of Days Lost to Treatment", 
+        ylab = "Days Lost to Treatment", 
+        col = "lightgreen")
+
+# Display the first few rows to verify
+head(df_rtt)
+
+
+```
+```{r}
+# Define the path to the output file
+output_dir <- "./Dataout"
+output_file_path <- file.path(output_dir, "tx_rtt.rds")
+
+# Save the df_new_filtered dataframe as an RDS file
+saveRDS(df_rtt, file = output_file_path)
+
+# Confirmation message
+cat("Dataframe has been saved to", output_file_path, "\n")
+```
+

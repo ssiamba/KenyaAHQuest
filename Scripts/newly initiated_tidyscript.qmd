@@ -90,7 +90,6 @@ df_new <- df_new %>%
 check for duplicates \_ no full duplicates
 
 ```{r}
-
 # Check for duplicates by all variables
 duplicates_all <- df_new %>%
   filter(duplicated(.))
