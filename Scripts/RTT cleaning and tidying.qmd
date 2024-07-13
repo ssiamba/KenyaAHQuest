@@ -21,6 +21,8 @@ library(janitor)
 library(lubridate)
 library(stringr)
 library(readr)
+library(gt)
+library(gtsummary)
 ```
 
 # Read the data 
@@ -54,27 +56,27 @@ df_rtt <- df_rtt %>%
 ```
 ```{r}
 # Renaming columns
-colnames(df_rtt) <- c("ip", "facility_name", "mfl_code", "county", 
-                      "client_id", "dob", "sex", "hiv_diag_date", 
+colnames(df_rtt) <- c("ip", "facility", "mfl_code", "county", 
+                      "id", "dob", "sex", "hiv_diag_date", 
                       "entry_point", "who_stage", "art_init_date", 
-                      "last_visit", "last_appt", "return_to_treatment")
+                      "last_visit", "last_appt", "rtt")
 ```
 
 
-Exclude observations that are missing last_visit, last_appt, or return_to_treatment data - no missing data 
+Exclude observations that are missing last_visit, last_appt, or rtt data - no missing data 
 ```{r}
 missing_last_visit <- sum(is.na(df_rtt$last_visit))
 missing_last_appt <- sum(is.na(df_rtt$last_appt))
-missing_return_to_treatment <- sum(is.na(df_rtt$return_to_treatment))
+missing_return_to_treatment <- sum(is.na(df_rtt$rtt))
 
-total_missing <- sum(is.na(df_rtt$last_visit) | is.na(df_rtt$last_appt) | is.na(df_rtt$return_to_treatment))
+total_missing <- sum(is.na(df_rtt$last_visit) | is.na(df_rtt$last_appt) | is.na(df_rtt$rtt))
 
 cat("Number of observations missing last visit: ", missing_last_visit, "\n")
 cat("Number of observations missing last appointment: ", missing_last_appt, "\n")
 cat("Number of observations missing return to treatment: ", missing_return_to_treatment, "\n")
 cat("Total number of observations missing last visit, last appointment, or return to treatment: ", total_missing, "\n")
 
-df_rtt <- df_rtt[!is.na(df_rtt$last_visit) & !is.na(df_rtt$last_appt) & !is.na(df_rtt$return_to_treatment), ]
+df_rtt <- df_rtt[!is.na(df_rtt$last_visit) & !is.na(df_rtt$last_appt) & !is.na(df_rtt$rtt), ]
 
 ```
 
@@ -85,78 +87,141 @@ df_rtt <- df_rtt[!is.na(df_rtt$last_visit) & !is.na(df_rtt$last_appt) & !is.na(d
 full_duplicates <- df_rtt[duplicated(df_rtt), ]
 ```
 
+# checking for duplicates by dob, sex and facility 
+
 ```{r}
-# Truncate client_id to the first 7 characters, concatenate with mfl_code, and create a unique identifier (UID)
+
+# Create iit_freq variable
 df_rtt <- df_rtt %>%
-  mutate(client_id_truncated = str_sub(client_id, 1, 7),
-         uid = paste0(client_id_truncated, "-", mfl_code)) %>%
-  relocate(uid, .after = client_id) %>%
-  select(-client_id_truncated,-client_id)
+  group_by(id) %>%
+  mutate(iit_freq = row_number()) %>%
+  ungroup()
+
+# Create the summary table
+iit_freq_summary <- df_rtt %>%
+  count(iit_freq) %>%
+  rename(Frequency = n)
+print(iit_freq_summary)
+
+```
+
+
+
+
+```{r}
+# # Truncate client_id to the first 7 characters, concatenate with mfl_code, and create a unique identifier (UID)
+# df_rtt <- df_rtt %>%
+#   mutate(client_id_truncated = str_sub(client_id, 1, 7),
+#          uid = paste0(client_id_truncated, "-", mfl_code)) %>%
+#   relocate(uid, .after = client_id) %>%
+#   select(-client_id_truncated,-client_id)
 ```
 
 # using dob create a new variable age 
+Number of people with no date of birth (dob): 5 
+Number of rows excluded due to missing dob: 5 
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+   1.00   30.00   39.00   38.99   48.00  110.00 
+Number of people over 90 years old: 46 
 ```{r}
 
-# Ensure 'dob' is in Date format
-df_rtt$dob <- as.Date(df_rtt$dob, format="%Y-%m-%d")
+# Load necessary libraries
+library(dplyr)
+library(lubridate)
 
-# Calculate age
-df_rtt$age <- floor(interval(df_rtt$dob, Sys.Date()) / years(1))
+# Count the number of missing dob entries
+num_missing_dob <- df_rtt %>%
+  filter(is.na(dob)) %>%
+  summarise(Count = n()) %>%
+  pull(Count)
+
+# Display the result
+cat("Number of people with no date of birth (dob):", num_missing_dob, "\n")
+
+# Exclude rows with missing dob
+df_rtt_filtered <- df_rtt %>%
+  filter(!is.na(dob))
+
+# Display the number of rows excluded
+num_excluded <- nrow(df_rtt_filtered) - nrow(df_rtt_filtered)
+cat("Number of rows excluded due to missing dob:", num_excluded, "\n")
+
+# Calculate age for the filtered dataframe
+df_rtt_filtered <- df_rtt_filtered %>%
+  mutate(age = floor(interval(dob, Sys.Date()) / years(1)))
 
 # Ensure 'age' is numeric
-df_rtt$age <- as.numeric(df_rtt$age)
+df_rtt_filtered$age <- as.numeric(df_rtt_filtered$age)
 
-# Create age categories(adjust age bands to #Age category<5, 05-14, 15-24, 25-49, 50+)
-df_rtt$age_cat <- cut(df_rtt$age, 
-                      breaks = c(seq(0, 50, by = 5), Inf), 
-                      labels = c("0-4", "5-9", "10-14", "15-19", "20-24", 
-                                 "25-29", "30-34", "35-39", "40-44", "45-49", "50+"), 
-                      right = FALSE)
+# Display summary of the age variable
+summary(df_rtt_filtered$age)
+
+# Categorize age into "<5, 05-14, 15-24, 25-49, 50+"
+df_rtt_filtered <- df_rtt_filtered %>%
+  mutate(age_cat = cut(age, 
+                       breaks = c(-Inf, 5, 15, 25, 50, Inf), 
+                       labels = c("<5", "05-14", "15-24", "25-49", "50+"), 
+                       right = FALSE))
+
 # Convert age_cat to a factor and set levels in increasing order
-df_rtt$age_cat <- factor(df_rtt$age_cat, 
-                         levels = c("0-4", "5-9", "10-14", "15-19", "20-24", 
-                                    "25-29", "30-34", "35-39", "40-44", "45-49", "50+"))
+df_rtt_filtered$age_cat <- factor(df_rtt_filtered$age_cat, 
+                                  levels = c("<5", "05-14", "15-24", "25-49", "50+"))
 
-# Display the first few rows to verify
-head(df_rtt)
+# Count how many people are over 90 years old
+num_over_90 <- df_rtt_filtered %>%
+  filter(age > 90) %>%
+  nrow()
+
+# Display the number of people over 90 years old
+cat("Number of people over 90 years old:", num_over_90, "\n")
 
 
 ```
 
 ```{r}
 # Determine the date range for rtt
-date_range <- df_rtt %>%
+date_range <- df_rtt_filtered %>%
   summarise(
-    min_date = min(return_to_treatment, na.rm = TRUE),
-    max_date = max(return_to_treatment, na.rm = TRUE)
+    min_date = min(rtt, na.rm = TRUE),
+    max_date = max(rtt, na.rm = TRUE)
   )
 
 # Display the date range
 print(date_range)
 ```
 ```{r}
-# Calculate the number of days lost to treatment
-df_rtt$days_lost_to_treatment <- as.numeric(df_rtt$return_to_treatment - df_rtt$last_appt)
+# Calculate the number of days ltfu
+df_rtt_filtered$days_ltfu <- as.numeric(df_rtt_filtered$rtt - df_rtt_filtered$last_appt)
 
-# Display the first few rows to verify
-head(df_rtt)
+
 
 ```
 # understanding "days lost to treatment"
+
+Summary statistics for days_ltfu:
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+   31.0    39.0    61.0   189.6   146.0  1700.0 
+
+Additional statistics for days_ltfu:
+Mean:  189.5695 
+Median:  61 
+Standard Deviation:  306.6562 
+Interquartile Range (IQR):  107 
+Missing Values:  0 
 ```{r}
 # Summary statistics
-summary_stats <- summary(df_rtt$days_lost_to_treatment)
-cat("Summary statistics for days_lost_to_treatment:\n")
+summary_stats <- summary(df_rtt_filtered$days_ltfu)
+cat("Summary statistics for days_ltfu:\n")
 print(summary_stats)
 
 # Additional statistics
-mean_days_lost <- mean(df_rtt$days_lost_to_treatment, na.rm = TRUE)
-median_days_lost <- median(df_rtt$days_lost_to_treatment, na.rm = TRUE)
-sd_days_lost <- sd(df_rtt$days_lost_to_treatment, na.rm = TRUE)
-iqr_days_lost <- IQR(df_rtt$days_lost_to_treatment, na.rm = TRUE)
-missing_values <- sum(is.na(df_rtt$days_lost_to_treatment))
+mean_days_lost <- mean(df_rtt_filtered$days_ltfu, na.rm = TRUE)
+median_days_lost <- median(df_rtt_filtered$days_ltfu, na.rm = TRUE)
+sd_days_lost <- sd(df_rtt_filtered$days_ltfu, na.rm = TRUE)
+iqr_days_lost <- IQR(df_rtt_filtered$days_ltfu, na.rm = TRUE)
+missing_values <- sum(is.na(df_rtt_filtered$days_ltfu))
 
-cat("\nAdditional statistics for days_lost_to_treatment:\n")
+cat("\nAdditional statistics for days_ltfu:\n")
 cat("Mean: ", mean_days_lost, "\n")
 cat("Median: ", median_days_lost, "\n")
 cat("Standard Deviation: ", sd_days_lost, "\n")
@@ -164,31 +229,120 @@ cat("Interquartile Range (IQR): ", iqr_days_lost, "\n")
 cat("Missing Values: ", missing_values, "\n")
 
 # Histogram
-hist(df_rtt$days_lost_to_treatment, 
-     main = "Histogram of Days Lost to Treatment", 
-     xlab = "Days Lost to Treatment", 
+hist(df_rtt_filtered$days_ltfu, 
+     main = "Histogram of Days Ltfu", 
+     xlab = "Daysltfu", 
      ylab = "Frequency", 
      col = "skyblue", 
      breaks = 50)
 
 # Boxplot
-boxplot(df_rtt$days_lost_to_treatment, 
-        main = "Boxplot of Days Lost to Treatment", 
-        ylab = "Days Lost to Treatment", 
+boxplot(df_rtt_filtered$days_ltfu, 
+        main = "Boxplot of Days ltfu", 
+        ylab = "Days ltfu", 
         col = "lightgreen")
 
-# Display the first few rows to verify
-head(df_rtt)
+
 
 
 ```
+```{r}
+# Create a table of days_ltfu and their frequencies
+ltfu_frequency_table <- table(df_rtt_filtered$days_ltfu)
+
+# Convert the table to a data frame for better readability
+ltfu_frequency_df <- as.data.frame(ltfu_frequency_table)
+colnames(ltfu_frequency_df) <- c("days_ltfu", "frequency")
+
+# Find the top 10 maximum days_ltfu
+top_10_max_days_ltfu <- ltfu_frequency_df[order(-as.numeric(as.character(ltfu_frequency_df$days_ltfu))), ][1:10, ]
+
+# Display the top 10 maximum days_ltfu
+print(top_10_max_days_ltfu)
+
+# Count the number of observations for the top 10 maximum days_ltfu
+top_10_observations <- sum(top_10_max_days_ltfu$frequency)
+
+cat("Total number of observations for the top 10 maximum days_ltfu: ", top_10_observations, "\n")
+
+
+```
+```{r}
+# Define the cut-off points for the categories
+cut_offs <- c(0, 90, 180, 365, 547, 730, Inf) # 3 months ~ 90 days, 6 months ~ 180 days, 12 months ~ 365 days, 18 months ~ 547 days, 24 months ~ 730 days
+
+
+# Create the categories with labels
+labels <- c("0-3 months", "3-6 months", "6-12 months", "12-18 months", "18-24 months", "24+ months")
+
+# Create the LTFU categories
+df_rtt_filtered <- df_rtt_filtered %>%
+  mutate(ltfu_category = cut(days_ltfu, breaks = cut_offs, labels = labels, right = FALSE))
+
+
+```
+
+```{r}
+# Add a new variable 'entry_category' with the value 'tx_rtt' for all observations
+df_rtt_filtered <- df_rtt_filtered %>%
+  mutate(entry_category = "tx_rtt")
+
+```
+
+
+
+```{r}
+
+df_rtt_filtered <- df_rtt_filtered %>%
+  mutate(
+    ltfu_category = cut(days_ltfu, breaks = c(0, 90, 180, 365, 547, 730, Inf), labels = c("0-3 months", "3-6 months", "6-12 months", "12-18 months", "18-24 months", "24+ months"), right = FALSE),
+    iit_freq = row_number()
+  )
+
+```
+
+```{r}
+
+# Generate the summary table
+summary_table <- df_rtt_filtered %>%
+  select(-ip, -facility, -mfl_code, -county, -id, -dob, -hiv_diag_date, -entry_point, -art_init_date, -last_visit, -last_appt, -age, -days_ltfu, -entry_category, -iit_freq) %>%
+  tbl_summary(
+    statistic = all_categorical() ~ "{n} ({p}%)",
+    label = list(
+      age_cat ~ "Age (years)",
+      sex ~ "Sex",
+      who_stage ~ "WHO Diagnosis stage",
+      ltfu_category ~ "Lost to Follow-up in Months"
+    )
+  ) %>%
+  modify_header(label ~ "**Characteristics**") %>%
+  as_gt() %>%
+  tab_header(
+    title = md("**RTT on Treatment Demographic Characteristics**")
+  ) %>%
+  tab_options(
+    table.width = pct(100),
+    column_labels.font.weight = "bold"
+  ) %>%
+  tab_style(
+    style = cell_text(size = px(12)),  # Adjust font size if needed
+    locations = cells_body()
+  )
+
+# Display the summary table
+summary_table
+
+```
+
+
+
 ```{r}
 # Define the path to the output file
 output_dir <- "./Dataout"
 output_file_path <- file.path(output_dir, "tx_rtt.rds")
 
 # Save the df_new_filtered dataframe as an RDS file
-saveRDS(df_rtt, file = output_file_path)
+saveRDS(df_rtt_filtered, file = output_file_path)
 
 # Confirmation message
 cat("Dataframe has been saved to", output_file_path, "\n")
