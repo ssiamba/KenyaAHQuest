@@ -1,0 +1,270 @@
+---
+title: "Advanced HIV Disease _ Treatment failure cleaning script"
+author: "Nelly Maina"
+format: html
+editor: visual
+---
+
+## Quarto
+"STEP 3: TAB ""3. Treatment failure""
+List  ALL clients who had their viral load tests done during the period October 1, 2022, and September 30, 2023 (FY23) and the results showed that they were virally unsuppressed (VL >=1,000 copies/ml). 
+Please note that a client can have more than one VL test because a repeat testing is expected as per the guidelines. List all the VL the tests conducted and the corresponding results.
+a). VL test date  - date of viral load testing. The dates take the format DD/MM/YYYY.
+b). VL test result - the results of the viral load test.
+"
+
+
+
+Load libraries 
+```{r}
+library(tidyverse)
+library(glamr)
+library(readxl)
+library(janitor)
+library(lubridate)
+library(stringr)
+library(readr)
+```
+
+Read the data and clean the names 
+```{r}
+df_tx_failure <- read_excel("Data/Data - AHD.xlsx", 
+  sheet = "3. Treatment failure", col_names = FALSE)
+# Use the second row as the column names
+colnames(df_tx_failure) <- df_tx_failure[2, ]
+
+# Remove the first two rows
+df_tx_failure <- df_tx_failure[-c(1, 2), ]
+
+# Convert date columns and factor columns in df_tx_failure
+df_tx_failure <- df_tx_failure %>%
+  mutate(
+    `Date of Birth` = as.Date(as.numeric(`Date of Birth`), origin = "1899-12-30"),
+    `Date of HIV Diagnosis` = as.Date(as.numeric(`Date of HIV Diagnosis`), origin = "1899-12-30"),
+    `Date of ART Initiation` = as.Date(as.numeric(`Date of ART Initiation`), origin = "1899-12-30"),
+    `VL test date` = as.Date(as.numeric(`VL test date`), origin = "1899-12-30"),
+    `Implementing Partner` = as.factor(`Implementing Partner`),
+    `Facility Name` = as.factor(`Facility Name`),
+    `County` = as.factor(`County`),
+    `Sex` = as.factor(Sex),
+    `Entry point at HIV Diagnosis` = as.factor(`Entry point at HIV Diagnosis`),
+    `WHO stage at HIV Diagnosis` = as.factor(`WHO stage at HIV Diagnosis`)
+  )
+
+
+```
+Rename columns 
+```{r}
+# Renaming columns
+df_tx_failure <- df_tx_failure %>% clean_names()
+#print(names(df_tx_failure))
+# Recode the variable names to shorter names
+colnames(df_tx_failure) <- c("ip", "facility", "mfl_code", "county", 
+                             "id", "dob", "sex", "hiv_diag_date", 
+                             "entry_point", "who_state_at_diag", "art_init_date", 
+                             "vl_test_date", "vl_test_result")
+
+# Display the new column names to verify
+print(names(df_tx_failure))
+```
+# create age categories for analysis '
+
+ summary statistics for age
+  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    0.0    22.0    36.0    35.2    47.0   100.0 
+ 
+```{r}
+
+# Calculate age
+df_tx_failure$age <- floor(interval(df_tx_failure$dob, Sys.Date()) / years(1))
+
+# Ensure 'age' is numeric
+df_tx_failure$age <- as.numeric(df_tx_failure$age)
+
+ summary(df_tx_failure$age)
+
+# Categorize age into "<5, 05-14, 15-24, 25-49, 50+"
+df_tx_failure$age_cat <- cut(df_tx_failure$age, 
+                      breaks = c(-Inf, 5, 15, 25, 50, Inf), 
+                      labels = c("<5", "05-14", "15-24", "25-49", "50+"), 
+                      right = FALSE)
+
+# Convert age_cat to a factor and set levels in increasing order
+df_tx_failure$age_cat <- factor(df_tx_failure$age_cat, 
+                         levels = c("<5", "05-14", "15-24", "25-49", "50+"))
+```
+```{r}
+# Create a 2 by 2 table of age_cat and sex
+age_sex_table <- table(df_tx_failure$age_cat, df_tx_failure$sex)
+print(age_sex_table)
+
+```
+#  Understanding Virologic failure
+  Greater than 1,000 copies/mL on two consecutive tests taken three months apart, with adherence support.
+
+
+# peds population 
+#should we exlude children  who had a viral load test less than 6 weeks after they were born??
+# can a child who has just been born be a treatment failure ?
+
+ we have 5 children who were tested  less than 6 weeks after birth 
+```{r}
+# Calculate the age at diagnosis in days
+df_tx_failure <- df_tx_failure %>%
+  mutate(days_to_diagnosis = as.numeric(difftime(vl_test_date, dob, units = "days")))
+
+# Filter children diagnosed less than 6 weeks (42 days) after birth
+children_diagnosed_less_than_6_weeks <- df_tx_failure %>%
+  filter(days_to_diagnosis < 42)
+
+# Count the number of such children
+num_children_diagnosed_less_than_6_weeks <- nrow(children_diagnosed_less_than_6_weeks)
+
+# Print the count
+cat("Number of children diagnosed less than 6 weeks after birth:", num_children_diagnosed_less_than_6_weeks, "\n")
+```
+
+
+
+
+
+```{r}
+
+# Group by id and count the number of occurrences
+vl_test_counts <- df_tx_failure %>%
+  group_by(id) %>%
+  summarize(count = n()) %>%
+  ungroup()
+
+# Create a summary table that shows how many client IDs have a specific number of VL tests
+summary_table <- vl_test_counts %>%
+  group_by(count) %>%
+  summarize(num_clients = n())
+
+# Display the summary table
+print(summary_table)
+
+
+```
+
+```{r}
+# Filter IDs with more than one VL test
+ids_with_multiple_tests <- df_tx_failure %>%
+  group_by(id) %>%
+  filter(n() > 2) %>%
+  arrange(id, vl_test_date)
+
+# Calculate time differences between VL tests
+time_differences <- ids_with_multiple_tests %>%
+  group_by(id) %>%
+  mutate(time_diff = as.numeric(difftime(vl_test_date, lag(vl_test_date), units = "days"))) %>%
+  filter(!is.na(time_diff)) # Remove NA values resulting from lag
+
+# Display the time differences
+print(time_differences)
+```
+
+```{r}
+# Sort the data by ID and VL test date
+df_tx_failure <- df_tx_failure %>%
+  arrange(id, vl_test_date)
+
+# Calculate the time difference between consecutive VL tests for the same ID
+df_tx_failure <- df_tx_failure %>%
+  group_by(id) %>%
+  mutate(time_diff = as.numeric(difftime(vl_test_date, lag(vl_test_date), units = "days"))) %>%
+  ungroup()
+
+# Count the number of observations where the time difference is less than or equal to 30 days
+num_within_30_days <- df_tx_failure %>%
+  filter(!is.na(time_diff) & time_diff <= 30) %>%
+  nrow()
+# Print the number of observations within 30 days
+print(paste("Number of observations with VL test dates within 30 days for the same ID:", num_within_30_days))
+
+# Filter out observations where the time difference is less than or equal to 30 days, keeping the time_diff column
+df_tx_failure_filtered <- df_tx_failure %>%
+  filter(is.na(time_diff) | time_diff > 30)
+```
+
+
+# The section to identify virologic failure based on two consecutive tests taken three months apart can be added after you calculate the time differences between VL tests. This is crucial for determining if there are two consecutive tests taken three months apart with viral loads greater than 1,000 copies/mL. ( Optional step )
+```{r}
+## Identifying Virologic Failure
+# Sort the data by ID and VL test date
+df_tx_failure <- df_tx_failure %>%
+  arrange(id, vl_test_date)
+
+# Calculate the time difference between consecutive VL tests for the same ID
+df_tx_failure <- df_tx_failure %>%
+  group_by(id) %>%
+  mutate(time_diff = as.numeric(difftime(vl_test_date, lag(vl_test_date), units = "days"))) %>%
+  ungroup()
+
+# Identify virologic failure based on two consecutive tests taken three months apart
+virologic_failure <- df_tx_failure %>%
+  group_by(id) %>%
+  filter(!is.na(time_diff) & time_diff >= 90 & lag(vl_test_result, order_by = vl_test_date) >= 1000 & vl_test_result >= 1000) %>%
+  ungroup()
+
+# Display the virologic failure cases
+print(virologic_failure)
+
+```
+
+
+```{r}
+# Add a new variable 'entry_category' with the value 'tx_rtt' for all observations
+df_tx_failure_filtered <- df_tx_failure_filtered %>%
+  mutate(entry_category = "tx_failure")
+```
+
+
+```{r}
+library(gt)
+library(gtsummary)
+
+summary_table <- df_tx_failure_filtered %>%
+  select(-ip, -facility, -mfl_code, -county, -id, -dob, -hiv_diag_date, -entry_point ,-art_init_date, -vl_test_date, -vl_test_result, -age, -days_to_diagnosis, -time_diff, -entry_category) %>%
+  tbl_summary(
+   # by = assessment_type,
+    statistic = all_categorical() ~ "{n} ({p}%)",
+   # missing = "no",  # Ensures all levels are shown
+    label = list(
+      age_cat ~ "Age (years)",
+      sex ~ "Sex",
+      who_state_at_diag ~"WHO Diagnosis stage"
+    )
+  ) %>%
+  modify_header(label ~ "**Characteristics**") %>%
+  as_gt() %>%
+  tab_header(
+    title = md("**New on Treatment Demographic Characteristics**")
+  ) %>%
+  tab_options(
+    table.width = pct(100),
+    column_labels.font.weight = "bold"
+  ) %>%
+  tab_style(
+    style = cell_text(size = px(12)),  # Adjust font size if needed
+    locations = cells_body()
+  )
+# Display the summary table
+summary_table
+```
+
+
+write out the data 
+
+```{r}
+# Define the path to the output file
+output_dir <- "./Dataout"
+output_file_path <- file.path(output_dir, "tx_failure.rds")
+
+# Save the df_new_filtered dataframe as an RDS file
+saveRDS(df_tx_failure, file = output_file_path)
+
+# Confirmation message
+cat("Dataframe has been saved to", output_file_path, "\n")
+```
+
