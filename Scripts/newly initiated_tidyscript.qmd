@@ -1,5 +1,5 @@
 ---
-title: "ADVANCE HIV Disease Newly initiated cleaning"
+title: "Advanced HIV Disease Newly initiated cleaning"
 author: "Nelly Maina"
 format: html
 editor: visual
@@ -29,8 +29,9 @@ Read the data from the Newly Initiated tab
 
 ```{r}
 
-df_new <- read_excel("Data/Data - AHD.xlsx", 
-  sheet = "1. Newly Initiated ", col_names = FALSE)
+#df_new <- read_excel("Data/Data - AHD.xlsx", sheet = "1. Newly Initiated ", col_names = FALSE)
+# Correct file path
+df_new <- read_excel("Data/Data - AHD.xlsx", sheet = "1. Newly Initiated", col_names = FALSE)
 
 
 # Use the second row as the column names
@@ -69,16 +70,16 @@ print(names(df_new))
 df_new <- df_new %>%
   rename(
     ip = implementing_partner,
-    facility_name = facility_name,
+    facility = facility_name,
     mfl_code = facility_mfl_code,
     county = county,
-    client_id = client_number_de_identified,
+    id = client_number_de_identified,
     dob = date_of_birth,
     sex = sex,
-    diag_date = date_of_hiv_diagnosis,
+    hiv_diag_date = date_of_hiv_diagnosis,
     diag_entry_date = entry_point_at_hiv_diagnosis,
     who_state_at_diag = who_stage_at_hiv_diagnosis,
-    init_date = date_of_art_initiation,
+    art_init_date = date_of_art_initiation,
     art_init_reg = art_regimen_at_initiation,
     init_reg_line = art_regimen_line_at_initiation,
     curr_reg = current_art_regimen,
@@ -87,7 +88,7 @@ df_new <- df_new %>%
 
 ```
 
-check for duplicates \_ no full duplicates
+check for duplicates _ no full duplicates found 
 
 ```{r}
 # Check for duplicates by all variables
@@ -101,26 +102,29 @@ cat("Number of duplicates by all variables:", nrow(duplicates_all), "\n")
 print(duplicates_all)
 
 # Check for duplicates by client_id
-duplicates_client_id <- df_new %>%
-  group_by(client_id) %>%
+duplicatesid <- df_new %>%
+  group_by(id) %>%
   filter(n() > 1) %>%
   ungroup()
 
 # Display the number of duplicates by client_id
-cat("Number of duplicates by client_id:", nrow(duplicates_client_id), "\n")
+cat("Number of duplicates by client_id:", nrow(duplicatesid), "\n")
 
 # Display the duplicated rows by client_id
-print(duplicates_client_id)
+print(duplicatesid)
 
 ```
 
+ Uderstand the Hiv_diagnosis date
 ```{r}
+ summary(df_new$hiv_diag_date)
+
 
 # Determine the date range for diagnosis_date
 date_range <- df_new %>%
   summarise(
-    min_date = min(diag_date, na.rm = TRUE),
-    max_date = max(diag_date, na.rm = TRUE)
+    min_date = min(hiv_diag_date, na.rm = TRUE),
+    max_date = max(hiv_diag_date, na.rm = TRUE)
   )
 
 # Display the date range
@@ -128,53 +132,207 @@ print(date_range)
 
 ```
 
-# we have 2999 tx_new that before October 1,2022
+
+#674 observations without diagnosis dates,  which need to be excluded 
+
+# we  also have 2999 tx_new that occur before October 1,2022 
+ from the next chunk we will exclude 3673 observations
+
+
+
 
 ```{r}
+
+# Count total observations
+total_observations <- nrow(df_new)
+
+# Handle NA values and unexpected dates
+# Count observations with NA hiv_diag_date
+num_na_diag_date <- sum(is.na(df_new$hiv_diag_date))
+
+# Filter out rows with NA values in the hiv_diag_date column
+df_new <- df_new %>%
+  filter(!is.na(hiv_diag_date))
+
 # Filter observations with diagnosis_date before October 1, 2022
 observations_before_oct_2022 <- df_new %>%
-  filter(diag_date < as.Date("2022-10-01"))
+  filter(hiv_diag_date < as.Date("2022-10-01"))
 
-# Display the number of observations and the observations themselves
-cat("Number of observations with diagnosis_date before October 1, 2022:", nrow(observations_before_oct_2022), "\n")
-# Filter out observations with diagnosis_date before October 1, 2022
+# Filter out observations before October 1, 2022
 df_new_filtered <- df_new %>%
-  filter(diag_date >= as.Date("2022-10-01"))
+  filter(hiv_diag_date >= as.Date("2022-10-01"))
 
-# Display the number of observations in the filtered dataframe
-cat("Number of observations in df_new after excluding those before October 1, 2022:", nrow(df_new_filtered), "\n")
+# Compare counts
+total_observations <- nrow(df_new)
+num_before_oct_2022 <- nrow(observations_before_oct_2022)
+num_after_oct_2022 <- nrow(df_new_filtered)
 
-# Display the filtered dataframe
-print(df_new_filtered)
+cat("Total observations:", total_observations, "\n")
+cat("Number of observations with NA hiv_diag_date:", num_na_diag_date, "\n")
+cat("Number of observations before October 1, 2022:", num_before_oct_2022, "\n")
+cat("Number of observations after excluding those before October 1, 2022:", num_after_oct_2022, "\n")
+
+```
+
+
+
+# Analyze age 
+```{r}
+# Count observations with NA hiv_diag_date
+num_na_dob <- sum(is.na(df_new_filtered$dob))
+
+# Calculate age
+df_new_filtered$age <- floor(interval(df_new_filtered$dob, Sys.Date()) / years(1))
+
+# Ensure 'age' is numeric
+df_new_filtered$age <- as.numeric(df_new_filtered$age)
+
+# Categorize age into "<5, 05-14, 15-24, 25-49, 50+"
+df_new_filtered$age_cat <- cut(df_new_filtered$age, 
+                      breaks = c(-Inf, 5, 15, 25, 50, Inf), 
+                      labels = c("<5", "05-14", "15-24", "25-49", "50+"), 
+                      right = FALSE)
+
+# Convert age_cat to a factor and set levels in increasing order
+df_new_filtered$age_cat <- factor(df_new_filtered$age_cat, 
+                         levels = c("<5", "05-14", "15-24", "25-49", "50+"))
+
+summary(df_new_filtered$age)
+
+# Count how many people are over 90 years old
+num_over_90 <- df_new_filtered %>%
+  filter(age > 90) %>%
+  nrow()
+
+# Print the count
+cat("Number of people over 90 years old:", num_over_90, "\n")
+
+
+
 ```
 
 ```{r}
-# Original number of unique client_ids before truncation
-orig_unique <- length(unique(df_new_filtered$client_id))
+# Visualize the distribution of age using a histogram
+ggplot(df_new_filtered, aes(x = age)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "black") +
+  labs(title = "Distribution of Ages", 
+       x = "Age", 
+       y = "Count") +
+  theme_minimal()
 
-# Truncate client_id to the first 7 characters, concatenate with mfl_code, and create a unique identifier (UID)
-df_new_filtered <- df_new_filtered %>%
-  mutate(client_id_truncated = str_sub(client_id, 1, 7),
-         uid = paste0(client_id_truncated, "-", mfl_code)) %>%
-  relocate(uid, .after = client_id) %>%
-  select(-client_id_truncated)
 
-# Check if concatenated client_ids (UIDs) are now unique
-unique_id_check <- length(unique(df_new_filtered$uid)) == orig_unique
-print(unique_id_check)
 
-# Create a new dataframe with the duplicates
-df_duplicates <- df_new_filtered %>%
-  group_by(uid) %>%
-  filter(n() > 1) %>%
-  ungroup()
-
-# Display the number of duplicates
-cat("Number of duplicate rows:", nrow(df_duplicates), "\n")
-
-# Display the dataframe with the duplicates
-print(df_duplicates)
+# Visualize distribution of age categories
+ggplot(df_new_filtered, aes(x = age_cat)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Age Categories", 
+       x = "Age Category", 
+       y = "Count") +
+  theme_minimal()
 ```
+# understand how many children were diagnosed with HIV less than 6 weeks after birth 
+
+```{r}
+# Calculate the age at diagnosis in days
+df_new_filtered <- df_new_filtered %>%
+  mutate(days_to_diagnosis = as.numeric(difftime(hiv_diag_date, dob, units = "days")))
+
+# Filter children diagnosed less than 6 weeks (42 days) after birth
+children_diagnosed_less_than_6_weeks <- df_new_filtered %>%
+  filter(days_to_diagnosis < 42)
+
+# Count the number of such children
+num_children_diagnosed_less_than_6_weeks <- nrow(children_diagnosed_less_than_6_weeks)
+
+# Print the count
+cat("Number of children diagnosed less than 6 weeks after birth:", num_children_diagnosed_less_than_6_weeks, "\n")
+```
+# exclude the children diagnosed less than 6 weeks after birth: 37 
+```{r}
+# Exclude children diagnosed less than 6 weeks (42 days) after birth
+df_new_filtered <- df_new_filtered %>%
+  filter(days_to_diagnosis >= 42 | is.na(days_to_diagnosis))
+# Remove the days_to_diagnosis column
+df_new_filtered <- df_new_filtered %>%
+  select(-days_to_diagnosis)
+```
+
+
+
+
+
+```{r}
+# # Original number of unique client_ids before truncation
+# orig_unique <- length(unique(df_new_filtered$client_id))
+# 
+# # Truncate client_id to the first 7 characters, concatenate with mfl_code, and create a unique identifier (UID)
+# df_new_filtered <- df_new_filtered %>%
+#   mutate(client_id_truncated = str_sub(client_id, 1, 7),
+#          uid = paste0(client_id_truncated, "-", mfl_code)) %>%
+#   relocate(uid, .after = client_id) %>%
+#   select(-client_id_truncated, -client_id)
+# 
+# # Check if concatenated client_ids (UIDs) are now unique
+# unique_id_check <- length(unique(df_new_filtered$uid)) == orig_unique
+# print(unique_id_check)
+# 
+# # Create a new dataframe with the duplicates
+# df_duplicates <- df_new_filtered %>%
+#   group_by(uid) %>%
+#   filter(n() > 1) %>%
+#   ungroup()
+# 
+# # Display the number of duplicates
+# cat("Number of duplicate rows:", nrow(df_duplicates), "\n")
+# 
+# # Display the dataframe with the duplicates
+# print(df_duplicates)
+```
+
+create a new variable to identify tx_new entries 
+```{r}
+# Add a new variable 'entry_category' with the value 'tx_new' for all observations
+df_new_filtered <- df_new_filtered %>%
+  mutate(entry_category = "tx_new")
+
+```
+
+
+Create summary table 
+```{r}
+library(gt)
+library(gtsummary)
+
+summary_table <- df_new_filtered %>%
+  select(-ip, -facility, -mfl_code, -county, -id, -dob, -hiv_diag_date, -diag_entry_date, -art_init_date,-art_init_date,-art_init_reg,art_init_reg, -init_reg_line, -curr_reg,-date_reg_change, -entry_category, -art_init_reg, -age) %>%
+  tbl_summary(
+   # by = assessment_type,
+    statistic = all_categorical() ~ "{n} ({p}%)",
+   # missing = "no",  # Ensures all levels are shown
+    label = list(
+      age_cat ~ "Age (years)",
+      sex ~ "Sex",
+      who_state_at_diag ~"WHO Diagnosis stage"
+    )
+  ) %>%
+  modify_header(label ~ "**Characteristics**") %>%
+  as_gt() %>%
+  tab_header(
+    title = md("**New on Treatment Demographic Characteristics**")
+  ) %>%
+  tab_options(
+    table.width = pct(100),
+    column_labels.font.weight = "bold"
+  ) %>%
+  tab_style(
+    style = cell_text(size = px(12)),  # Adjust font size if needed
+    locations = cells_body()
+  )
+# Display the summary table
+summary_table
+```
+
+
 
 #write the clean tx_new data into the Dataout folder
 
