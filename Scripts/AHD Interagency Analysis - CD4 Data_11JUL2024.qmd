@@ -1,0 +1,557 @@
+---
+title: "Advanced HIV Disease (AHD)"
+subtitle: "CD4 and Cryptococcal Antigen (CrAg) Data Analysis"
+author: "Lydia Odero"
+date: "July 3, 2024"
+format: html
+execute: 
+  warning: false
+  echo: false
+  cache: true
+---
+
+```{css}
+#| echo: false
+p{
+text-align: justify
+}
+```
+
+```{r setup, include=TRUE}
+library(tidyverse)
+library(readxl)
+library(glamr)
+#setting scientific notation (exponential) off for numbers
+options(scipen = 999) 
+
+#fonts
+windowsFonts(use_font = windowsFont("Gill Sans MT"))
+```
+
+## 1. Introduction
+
+Clients living with HIV who develop advanced HIV are at an increased risk of severe illness or death. Advanced HIV Disease (AHD) is defined as having a CD4 count of \<200 cells/mm3 or WHO stage 3 or 4 among adults and adolescents, and all children under the age of five years. Cryptococcal meningitis is one of the the commonest opportunistic infections in PLHIV with advanced HIV disease resulting in mortality, which is preventable if diagnosed early. Through modeling using UNAIDS estimates and PHIAs, the mean global cryptococcal antigenemia prevalence among PLHIV with CD4 \<200 is estimated at 4.4% , while that of sub-saharan Africa is at 3.7% .
+
+Individual-level data can help further improve the estimation process for the prevalence of advanced HIV disease and in particular the prevalence of cryptococcal meningitis. The advanced HIV disease cascade provides insights into the quality of care provided for clients who present at facilities seeking care. New clients who present for initiation of antiretroviral treatment, those returning to care after treatment interruption and those who have experienced treatment failure are most likely to present with advanced HIV disease. Care would include assessing CD4, and a reflex screen for cryptococcal meningitis using serum cryptococcal antigen (CrAg) test with initiation of treatment for clients who turn positive.
+
+## 2. Objectives
+
+Our main research objective is to develop the AHD cascade for Kenya using individual level data from the national data warehouse (NDW). Specifically, to:
+
+1\. Estimate proportion of high risk clients for AHD who receive a CD4 test 
+
+2\. Estimate  proportion of (a) above with a CD4 \<200 cells/mm3
+
+3\. Estimate proportion of (b) above who receive a cryptococcal antigen test
+
+-   Missed opportunities
+
+-   There may be patients who clinically present with signs of cryptococcal meningitis but may have CD4 \>200. ***Include under discussion for practice vs guidelines/policy.***
+
+-   Clients who received a cryptococcal meningitis screen without a CD4 test
+
+4\. Estimate prevalence of cryptococcal antigenemia 
+
+5\. Estimate proportions of clients who received treatment for cryptococcus
+
+-   Fluconazole prophylaxis
+
+-   Treatment with Amphotericin B (full course of treatment)
+
+6\. Estimate mortality emanating from cryptococcal meningitis
+
+This analysis will focus on the CD4 and Cryptococcus Antigen (CrAg) test data management and exploration, which will then be merged with other datasets for the full AHD data analysis. The other datasets include:
+
+1.  Newly initiated on treatment
+
+2.  Return to treatment
+
+3.  Treatment failure
+
+4.  Crypto treatment
+
+5.  TB (both TB-LAM and Anti-TB drugs)
+
+6.  Outcomes data
+
+## 3. CD4 Data Management & Exploration
+
+### 3.1 Loading the data
+
+```{r}
+# Reading the CD4 data 
+cd4_data_init <- read_excel("Data - AHD.xlsx", sheet = "4. CD4", 
+                       col_types = c("text", "text", "text", "text", "text", 
+                                     "date", "text", "date", "numeric"), skip = 1)
+glimpse(cd4_data_init)
+```
+
+The dataset has `r nrow(cd4_data_init)` records with `r ncol(cd4_data_init)` variables.
+
+### 3.2 Renaming variables and creating some more
+
+We need to rename the variables for better use in `R`.
+
+```{r}
+##Renaming the variables
+cd4_data_init <- cd4_data_init %>% 
+  rename("ip" = `Implementing Partner`,
+         "facility" = `Facility Name`,
+         "mfl_code" = `Facility MFL Code`,
+         "county" = "County" ,
+         "id" = `Client Number\r\n(De-identified)`,
+         "dob" = `Date of Birth`,
+         "sex" = "Sex",
+         "cd4_test_date" = `CD4 test date`,
+         "cd4_result" = `CD4 test result`)
+
+glimpse(cd4_data_init)
+```
+
+We also need a little bit of tidying up, which includes creating of factor variables, removing leading and trailing spaces, creating a second unique identifier to determine whether the initial `ID` is indeed unique, creating proper date values to allow proper calculation, calculating age of the clients both in days and years (complete/truncated and continuous), categorization of the ages to age bands, and basically positioning/locating variables appropriately.
+
+```{r}
+cd4_data <- cd4_data_init %>% 
+  mutate(ip = fct(ip),
+         facility = fct(facility),
+         mfl_code = fct(str_squish(mfl_code)),
+         county = fct(str_to_sentence(str_squish(county))),
+         id = fct(str_squish(id)),
+         id2 = fct(paste0(id, "_", dob, "_", sex, "_", mfl_code)),
+         sex = fct(sex),
+         dob = ymd(dob),
+         cd4_test_date = ymd(cd4_test_date),
+         age_all =  as.period(interval(dob, cd4_test_date)),
+         age_days = as.numeric(cd4_test_date - dob),
+         age_years_trunc = year(as.period(interval(dob, cd4_test_date))),
+         age_years_cont = age_days / 365.25,
+         age_band = fct(case_when(age_years_cont < 5 ~ "1_<5 years",
+                              age_years_cont >= 5 & age_years_cont < 15 ~ "2_05-14 years",
+                              age_years_cont >= 15 & age_years_cont < 25 ~ "3_15-24 years",
+                              age_years_cont >= 25 & age_years_cont < 50 ~ "4_25-49 years",
+                              age_years_cont >= 50 ~ "5_50+ years",
+                              .default = "Error") )) %>% 
+  relocate(id2, .after = id)
+
+glimpse(cd4_data)
+```
+
+The resulting dataset has `r nrow(cd4_data)` records and `r ncol(cd4_data)` variables. A summary is presented below:
+
+```{r}
+summary(cd4_data)
+```
+
+There are 33 missing records for the variables IP, facility, county. No missing variables ID, DOB, Sex, CD4 test date and CD4 results.
+
+```{r}
+n_mfl_code <- cd4_data %>% distinct(mfl_code) %>% count() 
+```
+
+There are `r n_mfl_code` distinct facilities.
+
+```{r}
+n_id <- cd4_data %>% distinct(id) %>% count() 
+```
+
+Out of the `r nrow(cd4_data)` records, there are `r n_id` unique `IDs` with `r nrow(cd4_data) - n_id` duplicates.
+
+```{r}
+n_id2 <- cd4_data %>% distinct(id2) %>% count() 
+```
+
+There are `r n_id2` `ID2` same as `r n_id` `ID`. We shall therefore use the client ID as the unique ID.
+
+### 3.3 Data Exploration
+
+#### 3.3.1 Number of clients per visit
+
+We shall determine the number of visits per client using the `client ID`.
+
+```{r}
+##Number of visits per client
+dup_data <- cd4_data %>% 
+  group_by(id) %>% 
+  summarize(visits = n()) %>% 
+  ungroup()
+
+##merging to the bigger data
+cd4_data <- cd4_data %>% 
+  left_join(dup_data, by = "id")
+
+##Arranging the data by ID and CD4 test date
+cd4_data_ordered <- cd4_data %>% 
+  mutate(visits_fct = fct(as.character(visits))) %>% 
+  arrange(id, cd4_test_date)
+
+glimpse(cd4_data_ordered)
+```
+
+```{r}
+dedup_data <- cd4_data_ordered %>% 
+  select(id, visits, visits_fct) %>% 
+  distinct() %>% 
+  glimpse()
+```
+
+```{r}
+summary(dedup_data[c("visits", "visits_fct")])
+```
+
+One `ID` had `158` records. We shall drop this `ID` since it does not seem realistic.
+
+```{r}
+cd4_data_ordered <- cd4_data_ordered %>% 
+  filter(visits != 158)
+
+dedup_data2 <- cd4_data_ordered %>% 
+  select(id, visits, visits_fct) %>% 
+  distinct() %>% 
+  glimpse()
+
+summary(dedup_data2[c("visits", "visits_fct")])
+```
+
+`r nrow(cd4_data_ordered)` is the new number of records which is `85,288 - 158`.
+
+#### 3.3.2 Age of clients at CD4 testing (in days and years)
+
+```{r}
+summary(cd4_data_ordered[c("age_days", "age_years_cont", "age_years_trunc")])
+```
+
+```{r}
+##Histogram of age (days)
+cd4_data_ordered %>% ggplot(aes(x = age_days)) +
+  geom_histogram(color = "black", binwidth = 3) +
+  geom_vline(aes(xintercept = mean(age_days)), colour = "red", linetype = "dashed", 
+                 linewidth = 1) +
+  geom_vline(aes(xintercept = median(age_days)), colour = "blue", linetype = "dashed", 
+             size = 1) +
+  labs(title = "Age histogram plot (at CD4 testing)", x = "Age (days)", y = "Count")
+```
+
+```{r}
+##Histogram of age (in years)
+cd4_data_ordered %>% ggplot(aes(x = age_years_cont)) +
+  geom_histogram(color = "black", binwidth = 3) +
+  geom_vline(aes(xintercept = mean(age_years_cont)), colour = "red", linetype = "dashed", 
+                 linewidth = 1) +
+  geom_vline(aes(xintercept = median(age_years_cont)), colour = "blue", linetype = "dashed", 
+             size = 1) +
+  labs(title = "Age histogram plot (at CD4 testing)", x = "Age (years)", y = "Count")
+```
+
+We shall also drop all records that had CD4 testing done within 30 days of birth. This does not seem realistic.
+
+```{r}
+age_day_30 <- cd4_data_ordered %>% 
+  filter(age_days <= 30) #How do we handle the CD4 counts done within a month of birth
+
+cd4_data_ordered <- cd4_data_ordered %>% 
+  filter(age_days >30)
+```
+
+`r nrow(age_day_30)` records have been dropped. Therefore we have `r nrow(cd4_data_ordered)` records remaining.
+
+#### 3.3.3 Calculating the duration between the CD4 testing dates
+
+```{r}
+##Lag date - for those with multiple CD4 count results, calculate the duration
+##the testing periods
+cd4_data_ordered2 <- cd4_data_ordered %>% 
+  group_by(id) %>% 
+  mutate(prev_cd4_test_date = if_else(visits == 1, NA, 
+                                      lag(cd4_test_date, n =1, order_by = id)),
+         duration_btw_test = as.numeric(cd4_test_date - prev_cd4_test_date)) %>% 
+  ungroup()
+```
+
+```{r}
+##check
+mult_visits <- cd4_data_ordered2 %>% 
+  filter(visits >1) 
+```
+
+```{r}
+##Histogram of duration between the CD4 testing dates
+cd4_data_ordered2 %>% 
+  filter(!is.na(duration_btw_test)) %>% 
+  ggplot(aes(x = duration_btw_test)) +
+  geom_histogram(color = "black", binwidth = 3) +
+  geom_vline(aes(xintercept = mean(duration_btw_test)), colour = "red", linetype = "dashed", 
+             linewidth = 1) +
+  geom_vline(aes(xintercept = median(duration_btw_test)), colour = "blue", linetype = "dashed", 
+             linewidth = 1) +
+  labs(title = "Duration betwen consecutive CD4 testing dates", x = "Duration (days)", y = "Count")
+```
+
+```{r}
+##Histogram of CD4 results
+cd4_data_ordered2 %>% 
+  #filter(cd4_result < 1000) %>% 
+  ggplot(aes(x = cd4_result)) +
+  geom_histogram(color = "black") +
+  geom_vline(aes(xintercept = mean(cd4_result)), colour = "red", linetype = "dashed", 
+             linewidth = 1) +
+  geom_vline(aes(xintercept = median(cd4_result)), colour = "blue", linetype = "dashed", 
+             linewidth = 1) +
+  labs(title = "CD4 results histogram plot", x = "CD4 count", y = "Count")
+```
+
+```{r}
+##Histogram of CD4 results
+cd4_data_ordered2 %>% 
+  filter(cd4_result < 1000) %>% 
+  ggplot(aes(x = cd4_result)) +
+  geom_histogram(color = "black") +
+  geom_vline(aes(xintercept = mean(cd4_result)), colour = "red", linetype = "dashed", 
+             linewidth = 1) +
+  geom_vline(aes(xintercept = median(cd4_result)), colour = "blue", linetype = "dashed", 
+             linewidth = 1) +
+  labs(title = "CD4 results histogram plot", x = "CD4 count", y = "Count")
+```
+
+```{r}
+#Data categorization - duration between tests and CD4 count results
+cd4_data_ordered3 <- cd4_data_ordered2 %>% 
+  mutate(duration_fct = fct(case_when(is.na(duration_btw_test) ~ "0_0 days",
+                                  duration_btw_test < 30 ~ "1_<30 days",
+                                  duration_btw_test >= 30 & duration_btw_test < 100 ~ "2_30-100 days",
+                                  duration_btw_test >= 100 & duration_btw_test < 200 ~ "3_100-200 days",
+                                  duration_btw_test >= 200 & duration_btw_test < 300 ~ "4_200-300 days",
+                                  duration_btw_test >= 300  ~ "5_>300 days",
+                                  .default = "6_Error")),
+         cd4_fct = fct(case_when(cd4_result < 200 ~ "1_<200",
+                       cd4_result >= 200 & cd4_result < 500 ~ "2_200-500",
+                       cd4_result >= 500 & cd4_result < 1000 ~ "3_500-1000",
+                       cd4_result >= 1000 & cd4_result < 5000 ~ "4_1000-5000",
+                       cd4_result >= 5000 & cd4_result < 20000 ~ "5_5000-20000",
+                       cd4_result >= 20000  ~ "6_>20000",
+                       .default = "7_Error")))
+
+#summary(cd4_data_ordered3[c("duration_fct", "cd4_fct")])
+table(cd4_data_ordered3[c("duration_fct")])
+table(cd4_data_ordered3[c("cd4_fct")])
+```
+
+Characterization of the clients with CD4 count results \>5000
+
+```{r}
+a <- cd4_data_ordered3 %>% 
+  filter(cd4_result >= 5000) 
+  #table(a$cd4_fct, a$age_band)
+  table(a$age_band)
+```
+
+## 4. Cryptococcus Antigen (CrAg) Test Data Management & Exploration
+
+### 4.1 Loading the data
+```{r}
+# Reading the CD4 data 
+crag_data_init <- read_excel("Data - AHD.xlsx", sheet = "5. Crypto antigen tests results", col_types = c("text", "text", "text", "text", "text", 
+                                     "date", "text", "date", "text"), skip = 1)
+glimpse(crag_data_init)
+```
+
+The dataset has `r nrow(crag_data_init)` records with `r ncol(crag_data_init)` variables.
+
+### 4.2 Renaming variables and creating some more
+
+We need to rename the variables for better use in `R`.
+
+```{r}
+##Renaming the variables
+crag_data_init <- crag_data_init %>% 
+  rename("ip" = `Implementing Partner`,
+         "facility" = `Facility Name`,
+         "mfl_code" = `Facility MFL Code`,
+         "county" = "County" ,
+         "id" = `Client Number\r\n(De-identified)`,
+         "dob" = `Date of Birth`,
+         "sex" = "Sex",
+         "crag_test_date" = `Crypto antigen test date`,
+         "crag_result" = `Crypto results from lab test`)
+
+glimpse(crag_data_init)
+```
+
+A little bit of tidying up, which includes creating of factor variables, removing leading and trailing spaces, creating a second unique identifier to determine whether the initial `ID` is indeed unique, creating proper date values to allow proper calculation, calculating age of the clients both in days and years (complete/truncated and continuous), categorization of the ages to age bands, and basically positioning/locating variables appropriately.
+
+```{r}
+crag_data <- crag_data_init %>% 
+  mutate(ip = fct(ip),
+         facility = fct(facility),
+         mfl_code = fct(str_squish(mfl_code)),
+         county = fct(str_to_sentence(str_squish(county))),
+         id = fct(str_squish(id)),
+         id2 = fct(paste0(id, "_", dob, "_", sex, "_", mfl_code)),
+         sex = fct(sex),
+         dob = ymd(dob),
+         crag_test_date = ymd(crag_test_date),
+         crag_result = fct(crag_result),
+         age_all =  as.period(interval(dob, crag_test_date)),
+         age_days = as.numeric(crag_test_date - dob),
+         age_years_trunc = year(as.period(interval(dob, crag_test_date))),
+         age_years_cont = age_days / 365.25,
+         age_band = fct(case_when(age_years_cont < 5 ~ "1_<5 years",
+                              age_years_cont >= 5 & age_years_cont < 15 ~ "2_05-14 years",
+                              age_years_cont >= 15 & age_years_cont < 25 ~ "3_15-24 years",
+                              age_years_cont >= 25 & age_years_cont < 50 ~ "4_25-49 years",
+                              age_years_cont >= 50 ~ "5_50+ years",
+                              .default = "Error"))) %>% 
+  relocate(id2, .after = id)
+
+glimpse(crag_data)
+```
+
+The resulting dataset has `r nrow(crag_data)` records and `r ncol(crag_data)` variables. A summary is presented below:
+
+```{r}
+summary(crag_data)
+```
+
+
+There are no missing values for all the variables.
+
+```{r}
+n2_mfl_code <- crag_data %>% distinct(mfl_code) %>% count() 
+```
+
+There are `r n2_mfl_code` distinct facilities.
+
+```{r}
+n2_id <- crag_data %>% distinct(id) %>% count() 
+```
+
+Out of the `r nrow(crag_data)` records, there are `r n2_id` unique `IDs` with `r nrow(crag_data) - n2_id` duplicates.
+
+```{r}
+n2_id2 <- crag_data %>% distinct(id2) %>% count() 
+```
+
+There are `r n2_id2` `ID2` same as `r n2_id` `ID`. We shall therefore use the client ID as the unique ID.
+
+### 4.3 Data Exploration
+
+#### 4.3.1 Number of clients per visit
+
+We shall determine the number of visits per client using the `client ID`.
+
+```{r}
+##Number of visits per client
+dup_crag_data <- crag_data %>% 
+  group_by(id) %>% 
+  summarize(visits = n()) %>% 
+  ungroup()
+
+##merging to the bigger data
+crag_data <- crag_data %>% 
+  left_join(dup_crag_data, by = "id")
+
+##Arranging the data by ID and CrAg test date
+crag_data_ordered <- crag_data %>% 
+  mutate(visits_fct = fct(as.character(visits))) %>% 
+  arrange(id, crag_test_date)
+
+glimpse(crag_data_ordered)
+```
+
+
+```{r}
+dedup_crag_data <- crag_data_ordered %>% 
+  select(id, visits, visits_fct) %>% 
+  distinct() %>% 
+  glimpse()
+```
+
+```{r}
+summary(dedup_crag_data[c("visits", "visits_fct")])
+```
+
+#### 4.3.2 Age of clients at CrAg testing (in days and years)
+
+```{r}
+summary(crag_data_ordered[c("age_days", "age_years_cont", "age_years_trunc")])
+```
+
+```{r}
+##Histogram of age (days)
+crag_data_ordered %>% ggplot(aes(x = age_days)) +
+  geom_histogram(color = "black", binwidth = 3) +
+  geom_vline(aes(xintercept = mean(age_days)), colour = "red", linetype = "dashed", 
+                 linewidth = 1) +
+  geom_vline(aes(xintercept = median(age_days)), colour = "blue", linetype = "dashed", 
+             size = 1) +
+  labs(title = "Age histogram plot (at CrAg testing)", x = "Age (days)", y = "Count")
+```
+
+```{r}
+##Histogram of age (in years)
+crag_data_ordered %>% ggplot(aes(x = age_years_cont)) +
+  geom_histogram(color = "black", binwidth = 3) +
+  geom_vline(aes(xintercept = mean(age_years_cont)), colour = "red", linetype = "dashed", 
+                 linewidth = 1) +
+  geom_vline(aes(xintercept = median(age_years_cont)), colour = "blue", linetype = "dashed", 
+             size = 1) +
+  labs(title = "Age histogram plot (at CrAg testing)", x = "Age (years)", y = "Count")
+```
+
+#### 4.3.3 Calculating the duration between the CD4 testing dates
+
+```{r}
+##Lag date - for those with multiple CrAg test results, calculate the duration
+##the testing periods
+crag_data_ordered2 <- crag_data_ordered %>% 
+  group_by(id) %>% 
+  mutate(prev_crag_test_date = if_else(visits == 1, NA, 
+                                      lag(crag_test_date, n =1, order_by = id)),
+         duration_btw_test = as.numeric(crag_test_date - prev_crag_test_date)) %>% 
+  ungroup()
+```
+
+```{r}
+##check
+mult_visits_crag <- crag_data_ordered2 %>% 
+  filter(visits >1) 
+```
+
+```{r}
+##Histogram of duration between the CrAg testing dates
+crag_data_ordered2 %>% 
+  filter(!is.na(duration_btw_test)) %>% 
+  ggplot(aes(x = duration_btw_test)) +
+  geom_histogram(color = "black", binwidth = 3) +
+  geom_vline(aes(xintercept = mean(duration_btw_test)), colour = "red", linetype = "dashed", 
+             linewidth = 1) +
+  geom_vline(aes(xintercept = median(duration_btw_test)), colour = "blue", linetype = "dashed", 
+             linewidth = 1) +
+  labs(title = "Duration betwen consecutive CrAg testing dates", x = "Duration (days)", y = "Count")
+```
+
+```{r}
+#Data categorization - duration between CrAg tests
+crag_data_ordered3 <- crag_data_ordered2 %>% 
+  mutate(duration_fct = fct(case_when(is.na(duration_btw_test) ~ "0_0 days",
+                                  duration_btw_test < 30 ~ "1_<30 days",
+                                  duration_btw_test >= 30 & duration_btw_test < 100 ~ "2_30-100 days",
+                                  duration_btw_test >= 100 & duration_btw_test < 200 ~ "3_100-200 days",
+                                  duration_btw_test >= 200 & duration_btw_test < 300 ~ "4_200-300 days",
+                                  duration_btw_test >= 300  ~ "5_>300 days",
+                                  .default = "6_Error")))
+```
+
+Duration between the CrAg test
+
+```{r}
+table(crag_data_ordered3[c("duration_fct")])
+```
+
+Results of the  CrAg test
+
+```{r}
+table(crag_data_ordered3[c("crag_result")])
+```
+
+
+

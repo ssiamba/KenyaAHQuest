@@ -1,0 +1,154 @@
+---
+title: "Merging Tx_new, Tx_Rtt, virologic failure"
+author: "Nelly Maina"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(tidylog)
+```
+
+
+
+ read the data 
+```{r}
+
+# Set the correct file paths
+
+
+# Load the data frames (assuming they are saved as .csv files in the dataout folder)
+df_failure<- readRDS("Dataout/virologic_failure.rds")
+df_new <- readRDS("Dataout/tx_new.rds")
+df_rtt <- readRDS("Dataout/tx_rtt.rds")
+
+
+
+```
+
+
+```{r}
+# Check for unique IDs in each dataset
+unique_new <- n_distinct(df_new$id)
+unique_rtt <- n_distinct(df_rtt$id)
+unique_failure <- n_distinct(df_failure$id)
+
+# Print the counts of unique IDs
+cat("Unique IDs in df_new:", unique_new, "\n")
+cat("Unique IDs in df_rtt:", unique_rtt, "\n")
+cat("Unique IDs in df_failure:", unique_failure, "\n")
+
+
+```
+
+
+
+
+loosing 20,154 clients, not sure why 
+```{r}
+
+# Select relevant columns and rename entry_category for consistency
+df_new <- df_new %>% select(id, entry_category,) %>% rename(entry_new = entry_category)
+df_rtt <- df_rtt %>% select(id, entry_category) %>% rename(entry_rtt = entry_category)
+df_failure <- df_failure %>% select(id, entry_category) %>% rename(entry_failure = entry_category)
+
+# Combine datasets by 'id'
+combined_df <- df_new %>%
+  full_join(df_rtt, by = "id") %>%
+  full_join(df_failure, by = "id")
+
+
+```
+
+
+```{r}
+# Replace NA with "Not Present" for entry categories
+combined_df <- combined_df %>%
+  mutate(across(starts_with("entry_"), ~ replace_na(., "Not Present")))
+
+# Create a summary table for combinations of appearances
+appearance_summary <- combined_df %>%
+  mutate(
+    in_new = ifelse(entry_new != "Not Present", "Tx_new", ""),
+    in_rtt = ifelse(entry_rtt != "Not Present", "Tx_rtt", ""),
+    in_failure = ifelse(entry_failure != "Not Present", "Tx_failure", ""),
+    combination = paste(in_new, in_rtt, in_failure, sep = ",")
+  ) %>%
+  mutate(combination = str_replace_all(combination, ",{2,}", ",")) %>%  # Replace multiple commas with a single comma
+  mutate(combination = str_replace_all(combination, "^,|,$", "")) %>%  # Remove leading/trailing commas
+  group_by(combination) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Display the summary table
+print(appearance_summary)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+library(gt)
+
+# Calculate percentages
+total_count <- sum(appearance_summary$count)
+appearance_summary <- appearance_summary %>%
+  mutate(percentage = (count / total_count) * 100)
+
+# Define the desired order of combinations
+desired_order <- c("Tx_new", "Tx_rtt", "Tx_failure", 
+                   "Tx_new,Tx_failure", "Tx_rtt,Tx_failure", 
+                   "Tx_new,Tx_rtt", "Tx_new,Tx_rtt,Tx_failure")
+
+# Arrange the data frame in the desired order
+appearance_summary <- appearance_summary %>%
+  mutate(combination = factor(combination, levels = desired_order)) %>%
+  arrange(combination)
+
+# Create and format the GT table
+appearance_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Summary of Client Appearances Across Datasets",
+    subtitle = "Based on entry categories: Tx_new, Tx_rtt, and Tx_failure"
+  ) %>%
+  cols_label(
+    combination = "Combination",
+    count = "Count",
+    percentage = "Percentage (%)"
+  ) %>%
+  fmt_number(
+    columns = vars(count),
+    decimals = 0
+  ) %>%
+  fmt_number(
+    columns = vars(percentage),
+    decimals = 2
+  ) %>%
+  tab_options(
+    table.font.size = 12,
+    heading.title.font.size = 14,
+    heading.subtitle.font.size = 12,
+    column_labels.font.size = 12,
+    table.width = pct(100),
+    data_row.padding = px(5)
+  )
+
+
+
+
+```
+
+
+ 
+
+
