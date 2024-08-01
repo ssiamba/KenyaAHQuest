@@ -1,3 +1,6 @@
+#Script for TB LAM and Anti-TB
+##The two datasets are worked on separately and merged/joined- full join
+
 #Load Libraries
 
 needed_packages <- c("tidyverse", "tidyr", "readr", "scales",
@@ -7,13 +10,15 @@ needed_packages <- c("tidyverse", "tidyr", "readr", "scales",
                      "janitor", "patchwork", "RColorBrewer", 
                      "gophr", "magrittr", "gt", "ggpubr", "gtExtras",
                      "gagglr", "rlang", "ggrepel", "ggpol", "data.table",
-                     "gtsummary", "webshot2", "openxlsx", "lubridate", "gt")
+                     "gtsummary", "webshot2", "openxlsx", "lubridate", "gt",
+                     "generics")
 
 lapply(needed_packages, library, character.only=TRUE)
 
 #Set up folders
-folder_setup()
+#folder_setup()
 
+# 1: TB LAM ---------------------------------------------------------------
 #Create workbook that will host the data
 
 df_tb_lam <- read_excel("Data/Crypto and TB.xlsx", 
@@ -73,7 +78,63 @@ saveWorkbook(tb_lam_data,
              paste0("Dataout/TB_LAM Data", ".xlsx"), 
              overwrite = T)
 
+# 2: Anti-TB -----------------------------------------------------------------
+#Create workbook that will host the data
 
+df_anti_tb <- read_excel("Data/Crypto and TB.xlsx", 
+                        sheet = "9. Anti-TB drugs", 
+                        col_names = FALSE)
+# Use the second row as the column names
+df_anti_tb <- df_anti_tb[-1,]
+colnames(df_anti_tb) <- df_anti_tb[1, ]
+df_anti_tb <- df_anti_tb[-1,]
+
+#Check if the IDs in the data are unique
+df_anti_tb <- df_anti_tb %>% 
+  group_by(`Client Number (De-identified)`) %>% 
+  mutate(Flag = ifelse(n() > 1,
+                       "duplicate",
+                       "unique")) %>% 
+  ungroup() %>% 
+  distinct(`Client Number (De-identified)`, .keep_all=TRUE)
+
+#Rename columns to standard names
+df_anti_tb <- df_anti_tb %>% 
+  rename("ip" = `Implementing Partner`,
+         "facility" = `Facility Name`,
+         "mfl_code" = `Facility MFL Code`,
+         "county" = `County`,
+         "client_id" = `Client Number (De-identified)`,
+         "dob" = `Date of Birth`,
+         "sex" = `Sex`,
+         "tb_tx_date" = `Date initiating Anti-TB drugs`) %>% 
+  select(-Flag)
+
+#Convert dob and tb_tx_date to numeric and then to date format- dates from excel file converted to date values during data call
+df_anti_tb$dob <- convertToDateTime(as.numeric(df_anti_tb$dob), 
+                                   origin = "1900-01-01")
+df_anti_tb$tb_tx_date <- convertToDateTime(as.numeric(df_anti_tb$tb_tx_date), 
+                                                origin = "1900-01-01")
+df_anti_tb$sex <- as.factor(df_anti_tb$sex)
+#Convert the all capitalized county column elements to string titled format
+df_anti_tb$county <- str_to_title(df_anti_tb$county, 
+                                 locale = "en")
+
+#Tables to check whether there is any missing data
+table(df_anti_tb$county, 
+      useNA = "ifany")
+table(df_anti_tb$sex, 
+      useNA = "ifany")
+
+#Create workbook and write the data there
+anti_tb_data <- createWorkbook()
+addWorksheet(anti_tb_data, 
+             sheetName = "Anti TB")
+writeData(anti_tb_data, sheet = "Anti TB", 
+          x = df_anti_tb)
+saveWorkbook(anti_tb_data, 
+             paste0("Dataout/Anti_TB Data", ".xlsx"), 
+             overwrite = T)
 
 
 
