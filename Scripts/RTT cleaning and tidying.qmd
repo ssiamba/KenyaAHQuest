@@ -4,15 +4,13 @@ author: "Nelly Maina"
 format: html
 editor: visual
 ---
-# RTT-IIT""
-List  ALL clients who experienced interruption in treatment (IIT) and returned to treatment (RTT) between October 1, 2022, and September 30, 2023 (FY23).  Please note that some clients who returned to treatment (RTT) in FY23 might have experienced interruption in treatment (IIT) before FY23 and some within FY23. Therefore, this is not a deduplicated list and all multiple RTTs  experienced in FY23 should be reported with the corresponding last visit date before experiencing ITT.
-  a). Last Actual Visit date prior to IIT - this is the last actual visit date the client came to the clinic or for drug pick-up, after which he/she did not honor the next appointment date resulting to IIT.  The dates take the format DD/MM/YYYY.
-  b). Last Appointment Date prior to IIT – this is the last appointment date the client was scheduled to come to the clinic or for drug pick-up and he/she did not honor resulting to IIT.  The dates take the format DD/MM/YYYY.
-  c). Date of Return to Treatment – this is the date the client returned to treatment after experiencing IIT (that is, after missing their scheduled appointment for more than 28days). The dates take the format DD/MM/YYYY.
-"
 
+# RTT-IIT""
+
+List ALL clients who experienced interruption in treatment (IIT) and returned to treatment (RTT) between October 1, 2022, and September 30, 2023 (FY23). Please note that some clients who returned to treatment (RTT) in FY23 might have experienced interruption in treatment (IIT) before FY23 and some within FY23. Therefore, this is not a deduplicated list and all multiple RTTs experienced in FY23 should be reported with the corresponding last visit date before experiencing ITT. a). Last Actual Visit date prior to IIT - this is the last actual visit date the client came to the clinic or for drug pick-up, after which he/she did not honor the next appointment date resulting to IIT. The dates take the format DD/MM/YYYY. b). Last Appointment Date prior to IIT – this is the last appointment date the client was scheduled to come to the clinic or for drug pick-up and he/she did not honor resulting to IIT. The dates take the format DD/MM/YYYY. c). Date of Return to Treatment – this is the date the client returned to treatment after experiencing IIT (that is, after missing their scheduled appointment for more than 28days). The dates take the format DD/MM/YYYY. "
 
 #Load packages
+
 ```{r}
 library(tidyverse)
 library(glamr)
@@ -25,7 +23,7 @@ library(gt)
 library(gtsummary)
 ```
 
-# Read the data 
+# Read the data
 
 ```{r}
 df_rtt <- read_excel("Data/Data - AHD.xlsx", 
@@ -54,6 +52,7 @@ df_rtt <- df_rtt %>%
   )
 
 ```
+
 ```{r}
 # Renaming columns
 colnames(df_rtt) <- c("ip", "facility", "mfl_code", "county", 
@@ -62,8 +61,8 @@ colnames(df_rtt) <- c("ip", "facility", "mfl_code", "county",
                       "last_visit", "last_appt", "rtt")
 ```
 
+Exclude observations that are missing last_visit, last_appt, or rtt data - no missing data
 
-Exclude observations that are missing last_visit, last_appt, or rtt data - no missing data 
 ```{r}
 missing_last_visit <- sum(is.na(df_rtt$last_visit))
 missing_last_appt <- sum(is.na(df_rtt$last_appt))
@@ -80,14 +79,13 @@ df_rtt <- df_rtt[!is.na(df_rtt$last_visit) & !is.na(df_rtt$last_appt) & !is.na(d
 
 ```
 
-
-# check for duplicates_ no full duplicates. 
+# check for duplicates\_ no full duplicates.
 
 ```{r}
 full_duplicates <- df_rtt[duplicated(df_rtt), ]
 ```
 
-# checking for duplicates by dob, sex and facility 
+# checking for duplicates by dob, sex and facility
 
 ```{r}
 
@@ -105,9 +103,6 @@ print(iit_freq_summary)
 
 ```
 
-
-
-
 ```{r}
 # # Truncate client_id to the first 7 characters, concatenate with mfl_code, and create a unique identifier (UID)
 # df_rtt <- df_rtt %>%
@@ -117,12 +112,10 @@ print(iit_freq_summary)
 #   select(-client_id_truncated,-client_id)
 ```
 
-# using dob create a new variable age 
-Number of people with no date of birth (dob): 5 
-Number of rows excluded due to missing dob: 5 
-   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-   1.00   30.00   39.00   38.99   48.00  110.00 
-Number of people over 90 years old: 46 
+# using dob create a new variable age
+
+Number of people with no date of birth (dob): 5 Number of rows excluded due to missing dob: 5 Min. 1st Qu. Median Mean 3rd Qu. Max. 1.00 30.00 39.00 38.99 48.00 110.00 Number of people over 90 years old: 46
+
 ```{r}
 
 # Load necessary libraries
@@ -189,6 +182,7 @@ date_range <- df_rtt_filtered %>%
 # Display the date range
 print(date_range)
 ```
+
 ```{r}
 # Calculate the number of days ltfu
 df_rtt_filtered$days_ltfu <- as.numeric(df_rtt_filtered$rtt - df_rtt_filtered$last_appt)
@@ -196,18 +190,13 @@ df_rtt_filtered$days_ltfu <- as.numeric(df_rtt_filtered$rtt - df_rtt_filtered$la
 
 
 ```
+
 # understanding "days lost to treatment"
 
-Summary statistics for days_ltfu:
-   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-   31.0    39.0    61.0   189.6   146.0  1700.0 
+Summary statistics for days_ltfu: Min. 1st Qu. Median Mean 3rd Qu. Max. 31.0 39.0 61.0 189.6 146.0 1700.0
 
-Additional statistics for days_ltfu:
-Mean:  189.5695 
-Median:  61 
-Standard Deviation:  306.6562 
-Interquartile Range (IQR):  107 
-Missing Values:  0 
+Additional statistics for days_ltfu: Mean: 189.5695 Median: 61 Standard Deviation: 306.6562 Interquartile Range (IQR): 107 Missing Values: 0
+
 ```{r}
 # Summary statistics
 summary_stats <- summary(df_rtt_filtered$days_ltfu)
@@ -246,6 +235,7 @@ boxplot(df_rtt_filtered$days_ltfu,
 
 
 ```
+
 ```{r}
 # Create a table of days_ltfu and their frequencies
 ltfu_frequency_table <- table(df_rtt_filtered$days_ltfu)
@@ -267,6 +257,7 @@ cat("Total number of observations for the top 10 maximum days_ltfu: ", top_10_ob
 
 
 ```
+
 ```{r}
 # Define the cut-off points for the categories
 cut_offs <- c(0, 90, 180, 365, 547, 730, Inf) # 3 months ~ 90 days, 6 months ~ 180 days, 12 months ~ 365 days, 18 months ~ 547 days, 24 months ~ 730 days
@@ -288,8 +279,6 @@ df_rtt_filtered <- df_rtt_filtered %>%
   mutate(entry_category = "tx_rtt")
 
 ```
-
-
 
 ```{r}
 
@@ -334,8 +323,6 @@ summary_table
 
 ```
 
-
-
 ```{r}
 # Define the path to the output file
 output_dir <- "./Dataout"
@@ -347,4 +334,3 @@ saveRDS(df_rtt_filtered, file = output_file_path)
 # Confirmation message
 cat("Dataframe has been saved to", output_file_path, "\n")
 ```
-
