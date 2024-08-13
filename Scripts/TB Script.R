@@ -11,12 +11,21 @@ needed_packages <- c("tidyverse", "tidyr", "readr", "scales",
                      "gophr", "magrittr", "gt", "ggpubr", "gtExtras",
                      "gagglr", "rlang", "ggrepel", "ggpol", "data.table",
                      "gtsummary", "webshot2", "openxlsx", "lubridate", "gt",
-                     "generics")
+                     "generics", "googledrive", "googlesheets4", "httpuv")
 
 lapply(needed_packages, library, character.only=TRUE)
 
 #Set up folders
 #folder_setup()
+
+
+
+#To use this package to pull directly from google drive- install googledrive and googlesheets4 packages
+#Also convert the data (.xlsx) stored in the drive to google sheets, otherwise it will not read
+
+#data_lm <- read_sheet("https://docs.google.com/spreadsheets/d/1WIVCCQfm7XjbN0EnxXJLipk5WIALunmxhnYUkHBlNXo/edit?usp=drive_link",
+                      #sheet = "8. TB-LAM")
+
 
 # 1: TB LAM ---------------------------------------------------------------
 #Create workbook that will host the data
@@ -56,6 +65,9 @@ df_tb_lam$dob <- convertToDateTime(as.numeric(df_tb_lam$dob),
                                    origin = "1900-01-01")
 df_tb_lam$tb_lam_test_date <- convertToDateTime(as.numeric(df_tb_lam$tb_lam_test_date), 
                                                 origin = "1900-01-01")
+
+df_tb_lam$sex <- as.factor(df_tb_lam$sex)
+df_tb_lam$tb_lam_results <- as.factor(df_tb_lam$tb_lam_results)
 
 #Convert the all capitalized county column elements to string titled format
 df_tb_lam$county <- str_to_title(df_tb_lam$county, 
